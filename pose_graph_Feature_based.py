@@ -178,15 +178,7 @@ if __name__ == "__main__":
     elif object == "spyderman":
         depth_path = ['./train/spyderman/depth/align_test_depth%d.png' % i for i in range(1, 17)]
         rgb_path = ['./train/spyderman/rgb/align_test%d.png' % i for i in range(1, 17)]
-        pcds_paths = ['./pcd_o3d/spyderman/spyderman1.pcd', './pcd_o3d/spyderman/spyderman2.pcd',
-                      './pcd_o3d/spyderman/spyderman3.pcd', './pcd_o3d/spyderman/spyderman4.pcd',
-                      './pcd_o3d/spyderman/spyderman5.pcd', './pcd_o3d/spyderman/spyderman6.pcd',
-                      './pcd_o3d/spyderman/spyderman7.pcd', './pcd_o3d/spyderman/spyderman8.pcd',
-                      './pcd_o3d/spyderman/spyderman9.pcd', './pcd_o3d/spyderman/spyderman10.pcd',
-                      './pcd_o3d/spyderman/spyderman11.pcd', './pcd_o3d/spyderman/spyderman12.pcd',
-                      './pcd_o3d/spyderman/spyderman13.pcd', './pcd_o3d/spyderman/spyderman14.pcd',
-                      './pcd_o3d/spyderman/spyderman15.pcd', './pcd_o3d/spyderman/spyderman16.pcd'
-                      ]
+        pcds_paths = ['./pcd_o3d/spyderman2/spyderman2%d.pcd' % i for i in range(1, 16)]
 
     # Define voxel size to Downsample
     voxel_size = 0.001
