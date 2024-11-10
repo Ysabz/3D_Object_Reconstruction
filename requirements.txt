@@ -1,0 +1,6 @@
+open3d
+pyrealsense2
+opencv-python
+numpy
+kornia
+kornia_moons
