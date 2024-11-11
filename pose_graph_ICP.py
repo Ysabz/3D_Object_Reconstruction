@@ -1,9 +1,7 @@
 import numpy as np
 import open3d as o3d
-from SIFT import SIFT_Transformation
-from registration import draw_registration_result
-from glob import glob
-import matplotlib.pyplot as plt
+import copy
+
 
 # Load point clouds
 def load_point_clouds(voxel_size=0.0, pcds_paths=None):
@@ -16,160 +14,94 @@ def load_point_clouds(voxel_size=0.0, pcds_paths=None):
         pcds.append(pcd_down)
     return pcds
 
-def load_orginal_point_clouds(voxel_size=0.0, pcds_paths=None):
-    pcds = []
-    print('len demo_icp_pcds_paths:', len(pcds_paths))
-    # demo_icp_pcds = o3d.data.DemoICPPointClouds()
-    for path in pcds_paths:
-        pcd = o3d.io.read_point_cloud(path)
-        pcds.append(pcd)
-    return pcds
 
-def pairwise_registration(source, target, init_trans):
+# Point to Plane ICP
+# Can investigate Point to Point
+def pairwise_registration(source, target, max_correspondence_distance_coarse, max_correspondence_distance_fine):
 
+    init_trans=np.identity(4)
+
+    # Required by TransformationEstimationPointToPlane
     source.estimate_normals()
     target.estimate_normals()
 
-    print("Apply point-to-plane ICP")
+    # Get a rough estimate of the transformation
     icp_coarse = o3d.pipelines.registration.registration_icp(
         source, target, max_correspondence_distance_coarse, init_trans,
         o3d.pipelines.registration.TransformationEstimationPointToPlane())
+    
+    # Refine the transformation
+    # (from Open3D: requires an initial transfomration that roughly aligns the source and the target)
     icp_fine = o3d.pipelines.registration.registration_icp(
         source, target, max_correspondence_distance_fine, icp_coarse.transformation,
-        o3d.pipelines.registration.TransformationEstimationPointToPlane())
+        o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+        criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=200))
+    
     transformation_icp = icp_fine.transformation
-    information_icp = o3d.pipelines.registration.get_information_matrix_from_point_clouds(
-        source, target, max_correspondence_distance_fine,
-        icp_fine.transformation)
-    return transformation_icp, information_icp
+    return transformation_icp
 
-def full_registration(pcds, max_correspondence_distance_coarse, max_correspondence_distance_fine):
-    pose_graph = o3d.pipelines.registration.PoseGraph()
-    odometry = np.identity(4)
-    pose_graph.nodes.append(o3d.pipelines.registration.PoseGraphNode(odometry))
-    n_pcds = len(pcds) # 16
-    for source_id in range(n_pcds):
-        for target_id in range(source_id + 1, n_pcds):
-            print('source id:', source_id)
-            print('target id:', target_id)
 
-            init_trans = np.identity(4)
-            transformation_icp, information_icp = pairwise_registration(pcds_down[source_id], pcds_down[target_id],
-                                                                        init_trans)
-            print("Build o3d.pipelines.registration.PoseGraph")
-            if target_id == source_id + 1:  # odometry case
 
-                odometry = np.dot((transformation_icp), odometry)
+def sequential_registration(pcds, max_correspondence_distance_coarse, max_correspondence_distance_fine):
 
-                pose_graph.nodes.append(
-                    o3d.pipelines.registration.PoseGraphNode(
-                        np.linalg.inv(odometry)))
-                pose_graph.edges.append(
-                    o3d.pipelines.registration.PoseGraphEdge(source_id,
-                                                             target_id,
-                                                             transformation_icp,
-                                                             information_icp,
-                                                             uncertain=False))
-            else:  # loop closure case -> connect any non-neighboring nodes
-                pose_graph.edges.append(
-                    o3d.pipelines.registration.PoseGraphEdge(source_id,
-                                                             target_id,
-                                                             transformation_icp,
-                                                             information_icp,
-                                                             uncertain=True))
-    # Loop closure
-    init_trans = np.identity(4)
-    transformation_icp, information_icp = pairwise_registration(pcds_down[n_pcds-1], pcds_down[0],
-                                                                init_trans)
-    pose_graph.edges.append(
-        o3d.pipelines.registration.PoseGraphEdge(n_pcds-1,
-                                                 0,
-                                                 transformation_icp,
-                                                 information_icp,
-                                                 uncertain=False))
-    return pose_graph
+    # Initialize with first point cloud
+    combined = copy.deepcopy(pcds[0])  # Start with first frame
+    
+    # For each new frame
+    for i in range(1, len(pcds)):
+        print(f'Aligning frame {i} to combined cloud')
+        
+        # Compute the transformation to go from the source (combined) to the target (new)
+        transformation_icp= pairwise_registration(
+            combined,
+            pcds[i],  # Current frame
+            max_correspondence_distance_coarse,
+            max_correspondence_distance_fine
+        )
+        
+        # Transform the combined point clouds to stitch the target
+        combined.transform(transformation_icp)
+        combined += pcds[i]
+        
+        # Downsample the points
+        combined = combined.voxel_down_sample(voxel_size=0.001)
+
+        
+        cl, _ = combined.remove_radius_outlier(
+            nb_points=200,    
+            radius=0.1       
+        )
+        
+        
+        cl, _ = combined.remove_statistical_outlier(
+            nb_neighbors=200,    
+            std_ratio=2.0       
+        )
+        
+        combined = cl
+        
+        
+    return combined
+
+
 
 if __name__ == "__main__":
 
-    object = "spyderman2"
+    #object = "new_box2"
 
-    if object == "castard":
-        depth_path = ['./train/castard/depth/align_test_depth%d.png' % i for i in range(1, 21)]
-        rgb_path = ['./train/castard/rgb/align_test%d.png' % i for i in range(1, 21)]
-        pcds_paths = ['./pcd_o3d/castard/box%d.pcd' % i for i in range(1, 19)]
-    elif object == "new_box":
-        depth_path = ['./train/new_box2/depth/align_test_depth%d.png' % i for i in range(1, 19)]
-        rgb_path = ['./train/new_box2/rgb/align_test%d.png' % i for i in range(1, 19)]
-        pcds_paths = ['./pcd_o3d/new_box2/box1%d.pcd' % i for i in range(1, 19)]
-    elif object == "spyderman":
-        depth_path = ['./train/spyderman/depth/align_test_depth%d.png' % i for i in range(1, 17)]
-        rgb_path = ['./train/spyderman/rgb/align_test%d.png' % i for i in range(1, 17)]
-        pcds_paths = ['./pcd_o3d/spyderman/spyderman%d.pcd' % i for i in range(1, 17)]
-    elif object == "spyderman2":
-        depth_path = ['./train/spyderman/depth/align_test_depth%d.png' % i for i in range(1, 23)]
-        rgb_path = ['./train/spyderman/rgb/align_test%d.png' % i for i in range(1, 23)]
-        pcds_paths = ['./pcd_o3d/spyderman2/spyderman2%d.pcd' % i for i in range(1, 23)]
+    depth_path = ['./train/spyderman2/depth/align_test_depth%d.png' % i for i in range(1, 21)]
+    rgb_path = ['./train/spyderman2/rgb/align_test%d.png' % i for i in range(1, 21)]
+    pcds_paths = ['./spyderman/spyderman%d.pcd' % i for i in range(1, 21)]
 
 
     # Define voxel size to Downsample
     voxel_size = 0.001
-    origin_pcds = load_orginal_point_clouds(voxel_size, pcds_paths)
     pcds_down = load_point_clouds(voxel_size, pcds_paths)
-    o3d.visualization.draw_geometries(pcds_down)
 
     print("Full registration ...")
     max_correspondence_distance_coarse = voxel_size * 15
     max_correspondence_distance_fine = voxel_size * 1
     with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-        pose_graph = full_registration(pcds_down,
-                                       max_correspondence_distance_coarse,
-                                       max_correspondence_distance_fine)
+        combined_cloud = sequential_registration(pcds_down, max_correspondence_distance_coarse, max_correspondence_distance_fine)
 
-    print("Optimizing PoseGraph ...")
-    option = o3d.pipelines.registration.GlobalOptimizationOption(
-        max_correspondence_distance=max_correspondence_distance_fine,
-        edge_prune_threshold=0.25,
-        preference_loop_closure=2.0,
-        reference_node=0)
-    with o3d.utility.VerbosityContextManager(
-            o3d.utility.VerbosityLevel.Debug) as cm:
-        o3d.pipelines.registration.global_optimization(
-            pose_graph,
-            o3d.pipelines.registration.GlobalOptimizationLevenbergMarquardt(),
-            o3d.pipelines.registration.GlobalOptimizationConvergenceCriteria(),
-            option)
-
-    print("Transform points and display")
-    accumulated_pcd = o3d.geometry.PointCloud()
-    for point_id in range(len(pcds_down)):
-        print(pose_graph.nodes[point_id].pose)
-        accumulated_pcd += pcds_down[point_id].transform(pose_graph.nodes[point_id].pose)
-    o3d.visualization.draw_geometries([accumulated_pcd])
-    # o3d.io.write_point_cloud('accumulated_%s.pcd'%object, accumulated_pcd)
-
-    # y = np.asarray(accumulated_pcd.points)[:, 1]
-    # y_mean = np.mean(y)
-    # plt.plot(y)
-    # plt.show()
-    # # idx = np.array([i for i in range(len(z))], dtype=np.int)
-    # idx = np.where(y < 0.138)[0]
-    # idx = np.asarray(idx, dtype=np.int)
-    # interest_pcd = accumulated_pcd.select_by_index(list(idx))
-    # o3d.visualization.draw_geometries([interest_pcd])
-
-    # Render
-    vis = o3d.visualization.Visualizer()
-    vis.create_window('3DReconstructed')
-
-    for p in pcds_down:
-        vis.add_geometry(p)
-
-    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0])
-    vis.add_geometry(axis)
-
-    opt = vis.get_render_option()
-    opt.background_color = np.asarray([1, 1, 1])
-    opt.point_size = 1.5
-
-    vis.run()
-    vis.destroy_window()
+    o3d.visualization.draw_geometries([combined_cloud])
