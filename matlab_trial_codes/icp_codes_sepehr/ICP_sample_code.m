@@ -1,4 +1,5 @@
 % Main script to import point clouds and run the ICP algorithm
+
 clc;clear;close all;
 
 addpath("./icp_matlab_exchange");

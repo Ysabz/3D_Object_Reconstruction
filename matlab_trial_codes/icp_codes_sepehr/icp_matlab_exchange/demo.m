@@ -4,6 +4,10 @@
 % ICP - Iterative Closest Point
 %
 % Jakob Wilm and Martin Kjer, Technical University of Denmark, 2012
+% 
+% 
+% The last part of this code which uses the kDtree method for matching
+% works on partial overlaps/
 
 clc;clear; close all;
 
