@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import os
 import argparse
+import glob
 
 
 # Intel RealSense D415
@@ -22,7 +23,7 @@ def make_point_cloud(i, obj, depth_thresholds, width_range, height_range):
     depth = np.asarray(depth, np.float32)
 
     # Filter image points based on depth
-    idx = np.where((depth < depth_thresholds[0]) or (depth > depth_thresholds[1]))
+    idx = np.where((depth < depth_thresholds[0]) | (depth > depth_thresholds[1]))
     depth[idx] = 0
     
     # Create the normalized point cloud
@@ -56,8 +57,8 @@ def make_point_cloud(i, obj, depth_thresholds, width_range, height_range):
     original_pcd.colors = o3d.utility.Vector3dVector(original_pcd_color)
 
     # Save point cloud
-    o3d.io.write_point_cloud(f'./spyderman/spyderman{i}.pcd', original_pcd)
-    #o3d.visualization.draw_geometries([original_pcd])
+    o3d.io.write_point_cloud(f'./{obj}/{obj}{i}.pcd', original_pcd)
+    o3d.visualization.draw_geometries([original_pcd])
 
 
 
@@ -66,29 +67,35 @@ if __name__ == "__main__":
     parser.add_argument("-ob", help="Object Name (castard, box, spyderman)", required=True)
 
     # Used to filter the points based on depth
-    parser.add_argument("-mid", help="Minimum Depth (Castard: ?, Box: ?, Spyderman: 500)", required=True)
-    parser.add_argument("-mad", help="Maximum Depth (Castard: 500, Box: 500, Spyderman: 700)", required=True)
+    parser.add_argument("-mid", help="Minimum Depth (Castard: 350, Box: 350, Spyderman: 500)", required=True)
+    parser.add_argument("-mad", help="Maximum Depth (Castard: 500, Box: 470, Spyderman: 700)", required=True)
 
     # Used to crop the object within the image
-    # IS THE IMAGE REVERSED?
-    parser.add_argument("-miw", help="Minimum width (Castard: ?, Box: ?, Spyderman: 200)", required=True)
-    parser.add_argument("-maw", help="Maximum width (Castard: ?, Box: ?, Spyderman: 460)", required=True)
-    parser.add_argument("-mih", help="Minimum height (Castard: ?, Box: ?, Spyderman: ?)", required=True)
-    parser.add_argument("-mah", help="Maximum height (Castard: ?, Box: ?, Spyderman: 420)", required=True)
+    # Width: left to right
+    # Height: bottom to top
+    parser.add_argument("-miw", help="Minimum width (Castard: 200, Box: 230, Spyderman: 200)", required=True)
+    parser.add_argument("-maw", help="Maximum width (Castard: 480, Box: 480, Spyderman: 460)", required=True)
+    parser.add_argument("-mih", help="Minimum height (Castard: 000, Box: 000, Spyderman: 000)", required=True)
+    parser.add_argument("-mah", help="Maximum height (Castard: 480, Box: 480, Spyderman: 480)", required=True)
 
     args = parser.parse_args()
     obj = args.ob
-    min_depth = args.mid
-    max_depth = args.mad
-    min_width = args.miw
-    max_width = args.maw
-    min_height = args.mih
-    max_height = args.mah
+    min_depth = int(args.mid)
+    max_depth = int(args.mad)
+    min_width = int(args.miw)
+    max_width = int(args.maw)
+    min_height = int(args.mih)
+    max_height = int(args.mah)
 
     os.makedirs(f'./{obj}', exist_ok=True)
-    #make_point_cloud(1)
+    #make_point_cloud(1, obj, [min_depth, max_depth], [min_width, max_width], [min_height, max_height])
     
-    for i in range(1, 23):
+    # Count the number of frames we have for this object if we haven't specified a last frame
+    frames = glob.glob(f'./train/{obj}/rgb/*.png')
+    nb_frames = len(frames)
+
+    
+    for i in range(1, nb_frames + 1):
         make_point_cloud(i, obj, [min_depth, max_depth], [min_width, max_width], [min_height, max_height])
     
     

@@ -148,5 +148,5 @@ if __name__ == "__main__":
 
     # Visualize the stitched point clouds and store the output
     o3d.visualization.draw_geometries([combined_cloud])
-    os.makedirs('./spyderman', exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     o3d.io.write_point_cloud(output_dir + f"/{obj}_icp_stitching.pcd", combined_cloud) # (Filename must be a string, not a Path)
