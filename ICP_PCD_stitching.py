@@ -4,7 +4,6 @@ import copy
 import argparse
 import glob
 import os
-from pathlib import Path
 
 
 # Load point clouds
@@ -20,68 +19,22 @@ def load_point_clouds(voxel_size, pcds_paths):
 # Point to Plane ICP
 # Can investigate Point to Point
 def pairwise_registration(source, target, max_correspondence_distance_coarse, max_correspondence_distance_fine,
-                          max_iteration, colored_icp):
+                          max_iteration, pointtoplane):
 
     init_trans=np.identity(4)
 
-    # Required by TransformationEstimationPointToPlane
-    source.estimate_normals()
-    target.estimate_normals()
-
-    if (colored_icp):
-        '''
-        source.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(radius=radius * 2, max_nn=30))
-        target.estimate_normals(
-            o3d.geometry.KDTreeSearchParamHybrid(radius=radius * 2, max_nn=30))
-        '''
-        
-        '''
-        # Get a rough estimate of the transformation
-        icp_coarse = o3d.pipelines.registration.registration_colored_icp(
-            source, target, 0.015, init_trans,
-            o3d.pipelines.registration.TransformationEstimationForColoredICP(lambda_geometric = 0.85),
-            #criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=100)
-            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-                relative_fitness=1e-6,
-                relative_rmse=1e-6,
-                max_iteration=50),
-        )
-        '''
-        
-        # Get a rough estimate of the transformation
-        icp_coarse1 = o3d.pipelines.registration.registration_icp(
-            source, target, 0.015, init_trans,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane())
-
-
-        # Refine the transformation
-        # (from Open3D: requires an initial transformation that roughly aligns the source and the target)
-        icp_coarse2 = o3d.pipelines.registration.registration_icp(
-            source, target, 0.001, icp_coarse1.transformation,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
-            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iteration))
-        
-
-        # Get a rough estimate of the transformation
-        icp_fine = o3d.pipelines.registration.registration_colored_icp(
-            source, target, 0.001, icp_coarse2.transformation,
-            o3d.pipelines.registration.TransformationEstimationForColoredICP(lambda_geometric = 0.20),
-            #criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=100)
-            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(
-                relative_fitness=1e-2,
-                relative_rmse=1e-2,
-                max_iteration=200),
-        )
+    if (pointtoplane):
+        # Required by TransformationEstimationPointToPlane
+        source.estimate_normals()
+        target.estimate_normals()
         
         
-
-    else:
-
         # Get a rough estimate of the transformation
         icp_coarse = o3d.pipelines.registration.registration_icp(
             source, target, max_correspondence_distance_coarse, init_trans,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane())
+            o3d.pipelines.registration.TransformationEstimationPointToPlane(),
+            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iteration))
+        
 
         # Refine the transformation
         # (from Open3D: requires an initial transformation that roughly aligns the source and the target)
@@ -89,16 +42,29 @@ def pairwise_registration(source, target, max_correspondence_distance_coarse, ma
             source, target, max_correspondence_distance_fine, icp_coarse.transformation,
             o3d.pipelines.registration.TransformationEstimationPointToPlane(),
             criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iteration))
-    
+        
+    else:
+        # Get a rough estimate of the transformation
+        icp_coarse = o3d.pipelines.registration.registration_icp(
+            source, target, max_correspondence_distance_coarse, init_trans,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iteration))
 
+        # Refine the transformation
+        # (from Open3D: requires an initial transformation that roughly aligns the source and the target)
+        icp_fine = o3d.pipelines.registration.registration_icp(
+            source, target, max_correspondence_distance_fine, icp_coarse.transformation,
+            o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+            criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iteration))
+    
     transformation_icp = icp_fine.transformation
     return transformation_icp
 
 
 
 # Sequentially stitch the point clouds using the transformation computed by ICP
-def sequential_registration(pcds, colored_icp, max_correspondence_distance_coarse, max_correspondence_distance_fine, voxel_size_stitching,
-                            max_iteration, nb_points, radius, nb_neighbors, std_ratio):
+def sequential_registration(pcds, max_correspondence_distance_coarse, max_correspondence_distance_fine, voxel_size_stitching,
+                            max_iteration, pointtoplane):
 
     # Initialize with first point cloud
     combined = copy.deepcopy(pcds[0])  # Start with first frame
@@ -106,8 +72,8 @@ def sequential_registration(pcds, colored_icp, max_correspondence_distance_coars
     # For each new frame
     for i in range(1, len(pcds)):
         print(f'Aligning frame {i} to combined cloud')
-        if (i == 10):
-            break
+        #if (i == 10):
+            #break
         
         # Compute the transformation to go from the source (combined) to the target (new)
         transformation_icp= pairwise_registration(
@@ -116,7 +82,7 @@ def sequential_registration(pcds, colored_icp, max_correspondence_distance_coars
             max_correspondence_distance_coarse,
             max_correspondence_distance_fine,
             max_iteration,
-            colored_icp
+            pointtoplane
         )
         
         # Transform the combined point clouds and stitch the target
@@ -125,23 +91,6 @@ def sequential_registration(pcds, colored_icp, max_correspondence_distance_coars
         
         # Downsample the points using voxel
         combined = combined.voxel_down_sample(voxel_size=voxel_size_stitching)
-
-        '''
-        # Downsample the points using remove_radius_outlier
-        cl, _ = combined.remove_radius_outlier(
-            nb_points=nb_points,    
-            radius=radius       
-        )
-        
-        # Downsample the points using remove_statistical_outlier
-        cl, _ = cl.remove_statistical_outlier(
-            nb_neighbors=nb_neighbors,    
-            std_ratio=std_ratio       
-        )
-        
-        
-        combined = cl
-        '''
         
     return combined
 
@@ -152,30 +101,25 @@ if __name__ == "__main__":
     # Script arguments 
     parser = argparse.ArgumentParser()
     parser.add_argument("-ob", help="Object Name (castard, box, spyderman)", required=True)
-    parser.add_argument("-c", help="Whether to do Colored ICP", default=False)
     parser.add_argument("-f", help="(Optional) First Frame", default=1)
     parser.add_argument("-l", help="(Optional) Last Frame", default=-1)
     parser.add_argument("-o", help="Output Directory Path", default="./results")
 
     # Algorithm hyperparameters
-    parser.add_argument("-vl", help="Voxel size when loading the point clouds", default=0.001)
-    parser.add_argument("-vs", help="Voxel size after stitching the point clouds", default=0.001)
-    parser.add_argument("-cs", help="Maximum correspondence distance coarse scale factor", default=15)
-    parser.add_argument("-fs", help="Maximum correspondence distance fine scale factor", default=1)
-    parser.add_argument("-mi", help="Maximum number of iterations of ICP for the refinement", default=200)
-    parser.add_argument("-np", help="Number of points in remove_radius_outlier", default=20)
-    parser.add_argument("-r", help="Radius in remove_radius_outlier", default=0.1)
-    parser.add_argument("-nn", help="Number of neighbors in remove_statistical_outlier", default=20)
-    parser.add_argument("-sr", help="Std_ratio in remove_statistical_outlier", default=1.0)
+    parser.add_argument("-vl", help="Voxel size when loading the point clouds", default=0.01)
+    parser.add_argument("-vs", help="Voxel size after stitching the point clouds", default=0.01)
+    parser.add_argument("-cs", help="Maximum correspondence distance coarse scale factor", default=100)
+    parser.add_argument("-fs", help="Maximum correspondence distance fine scale factor", default=10)
+    parser.add_argument("-mi", help="Maximum number of iterations of ICP for the refinement", default=400)
     
     args = parser.parse_args()
     
     # Retrieve arguments
     obj = args.ob
-    colored_icp = bool(args.c)
     first_frame = int(args.f) # If none specified, start with first frame
     last_frame = int(args.l) # If none specified, end with last frame
     output_dir = args.o
+    pointtoplane = False
 
     # Retrieve hyperparameter values
     voxel_size_loading = args.vl
@@ -183,11 +127,7 @@ if __name__ == "__main__":
     coarse_scale_factor = args.cs
     fine_scale_factor = args.fs
     max_iteration = args.mi
-    nb_points = args.np
-    radius = args.r
-    nb_neighbors = args.nn
-    std_ratio = args.sr
-
+    
     # Count the number of frames we have for this object if we haven't specified a last frame
     if (last_frame == -1):
         frames = glob.glob(f'./train/{obj}/rgb/*.png')
@@ -203,13 +143,14 @@ if __name__ == "__main__":
     max_correspondence_distance_coarse = voxel_size_stitching * coarse_scale_factor
     max_correspondence_distance_fine = voxel_size_stitching * fine_scale_factor
     with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Debug) as cm:
-        combined_cloud = sequential_registration(pcds_down, colored_icp, max_correspondence_distance_coarse, max_correspondence_distance_fine, voxel_size_stitching,
-                                                 max_iteration, nb_points, radius, nb_neighbors, std_ratio)
+        combined_cloud = sequential_registration(pcds_down, max_correspondence_distance_coarse, max_correspondence_distance_fine, voxel_size_stitching,
+                                                 max_iteration, pointtoplane)
 
     # Visualize the stitched point clouds and store the output
     o3d.visualization.draw_geometries([combined_cloud])
     os.makedirs(output_dir, exist_ok=True)
-    if (colored_icp):
-        o3d.io.write_point_cloud(output_dir + f"/{obj}_colored_icp_stitching.pcd", combined_cloud)
-    else:
+    if (pointtoplane):
         o3d.io.write_point_cloud(output_dir + f"/{obj}_icp_stitching.pcd", combined_cloud) # (Filename must be a string, not a Path)
+    else:
+        o3d.io.write_point_cloud(output_dir + f"/{obj}pointtopoint_icp_stitching.pcd", combined_cloud)
+    
