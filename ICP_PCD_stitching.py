@@ -134,7 +134,7 @@ if __name__ == "__main__":
         last_frame = len(frames)
 
     # Corresponding point clouds for the stitching we want to do
-    pcds_paths = [f'./pcd_new/{obj}/{obj}' + '%d.pcd' % i for i in range(first_frame, last_frame + 1)]
+    pcds_paths = [f'./pointcloud_frames/{obj}/{obj}' + '%d.pcd' % i for i in range(first_frame, last_frame + 1)]
 
     # Load the point clouds
     pcds_down = load_point_clouds(voxel_size_loading, pcds_paths)
